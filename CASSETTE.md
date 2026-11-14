@@ -81,6 +81,8 @@ The emulator will display the `*` prompt. Commands follow Steve Wozniak's origin
 4. Wait 1–2 seconds until you are inside the steady 1000 Hz leader tone, then press **`RETURN`**.
 5. The Pico calibrates its ADC midpoint, locks onto the leader tone, synchronizes on the sync bit, and loads the bytes into RAM. When `OK` prints, press **STOP** on the player and press **`RETURN`** (blank line) to return to Woz Monitor.
 
+The audio in/out to tape is 100% compatable with the original Apple1, so if you have one (lucky you) this emulator can be used to read and write tape for it!
+
 ---
 
 ## 3. Apple-1 ACI Audio Protocol Specification
