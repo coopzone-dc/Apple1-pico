@@ -20,25 +20,25 @@ The firmware uses the first available digital GPIO pin for audio output and the 
 * **Input (Recorder `EAR` → `GP26 / ADC0`):** The Pico's ADC reads `0–3.3 V` only, whereas headphone audio swings positive and negative around `0 V`. Use two **10 kΩ resistors** between `3V3(OUT)` and `GND` to bias `GP26` at **1.65 V**, and couple the cassette player's headphone signal into `GP26` through a **1 µF – 10 µF capacitor**.
 
 ```text
-  TAPE OUT (Pico -> Recorder MIC / Line-In)
-  -----------------------------------------
-  GP0 (Pin 1) +---[ 10k / 100ohm forming divisor]---+---[ 1uF - 10uF from midpoint ]---+---> MIC / Line-In Tip
-                                  |                 |
-                                  +---> GND (Sleeve)
+TAPE OUT (Pico -> Recorder MIC / Line-In)
+-----------------------------------------
+GP0 (Pin 1) +---[ 10k / 100ohm forming divisor]---+---[ 1uF - 10uF from midpoint ]---+---> MIC / Line-In Tip
+                                                |
+                                                +---> GND (Sleeve)
 
-  TAPE IN (Recorder Headphone -> Pico ADC0)
-  -----------------------------------------
-  3V3 (Pin 36) ---[ 10k ]---+---> GP26 / ADC0 (Pin 31)
-                            |
-  EAR Tip ------[ 1uF ]-----+
-                            |
-  GND (Pin 38) ---[ 10k ]---+---> GND (Sleeve)
+TAPE IN (Recorder Headphone -> Pico ADC0)
+-----------------------------------------
+3V3 (Pin 36) ---[ 10k ]---+---> GP26 / ADC0 (Pin 31)
+                          |
+EAR Tip ------[ 1uF ]-----+
+                          |
+GND (Pin 38) ---[ 10k ]---+---> GND (Sleeve)
+
 ---
 
 See [./pico-runcpm.pdf](pico-runcpm.pdf)
 
-### 2. User Operating Guide
-
+## 2. User Operating Guide
 From the Woz Monitor (`\` prompt), launch the emulated ACI ROM by typing:
 
 ```text
