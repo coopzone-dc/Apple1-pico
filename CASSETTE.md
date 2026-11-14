@@ -33,7 +33,8 @@ The firmware uses the first available digital GPIO pin for audio output and the 
   EAR Tip ------[ 1uF ]-----+
                             |
   GND (Pin 38) ---[ 10k ]---+---> GND (Sleeve)
-```
+
+See [Circuit for pico_runcpm](pico-runcpm.pdf)
 
 ---
 
