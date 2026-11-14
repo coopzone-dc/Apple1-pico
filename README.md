@@ -23,11 +23,12 @@ The emulator uses the Pico's **USB port** as the terminal (keyboard and display)
 Format the microSD card as **FAT32** and place your files in the following structure:
 ```text
 /
-├── roms/
-│   └── apple1basic.bin      # Apple-1 Integer BASIC (loaded automatically at $E000 on boot)
-└── tape/
-    ├── PROGRAM.DAT          # Saved binary tape images
-    └── PROGRAM.MAP          # Auto-generated memory range map ("0300.03FF")
+/apple1
+       ├── roms/
+       │   └── apple1basic.bin      # Apple-1 Integer BASIC (loaded automatically at $E000 on boot)
+       └── tape/
+           ├── PROGRAM.DAT          # Saved binary tape images
+           └── PROGRAM.MAP          # Auto-generated memory range map ("0300.03FF")
 ```
 
 ---
