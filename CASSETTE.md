@@ -34,7 +34,7 @@ The firmware uses the first available digital GPIO pin for audio output and the 
                             |
   GND (Pin 38) ---[ 10k ]---+---> GND (Sleeve)
 
-See [Circuit for pico_runcpm](pico-runcpm.pdf)
+See [pico-runcpm.pdf](Circuit for pico_runcpm)
 
 ---
 
