@@ -22,7 +22,7 @@ The firmware uses the first available digital GPIO pin for audio output and the 
 ```text
   TAPE OUT (Pico -> Recorder MIC / Line-In)
   -----------------------------------------
-  GP0 (Pin 1) +---[ 10k / 100ohm forming divisor]---+---[ 1uF - 10uF ]---+---> MIC / Line-In Tip
+  GP0 (Pin 1) +---[ 10k / 100ohm forming divisor]---+---[ 1uF - 10uF from midpoint ]---+---> MIC / Line-In Tip
                                   |                 |
                                   +---> GND (Sleeve)
 
