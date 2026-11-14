@@ -1,5 +1,7 @@
 # Apple-1 Emulator for Raspberry Pi Pico / Pico 2 (`apple1_pico`)
 
+This is one of four projects for the pico,  RunCPM, RC2040 and RC2040-ROMWBW are the others, sof far. They all use the same PCB so you can switch between them by just uploading the .uf2 file for the one you want.
+
 An Apple-1 computer emulator running on the **Raspberry Pi Pico (RP2040)** and **Raspberry Pi Pico 2 (RP2350)**, featuring cycle-accurate 1.023 MHz 6502 CPU throttling, USB CDC serial console I/O, SD-card ROM and tape loading, and real-time audio cassette interface support.
 
 ---
@@ -15,7 +17,7 @@ The emulator uses the Pico's **USB port** as the terminal (keyboard and display)
 | **SD Card** | `CS` (`SS`) | `GP17` (Pin 22) | SPI0 CSn |
 | **SD Card** | `SCK` | `GP18` (Pin 24) | SPI0 SCK |
 | **SD Card** | `MOSI` | `GP19` (Pin 25) | SPI0 TX |
-| **Cassette** | Audio Out (`W`) | `GP0` (Pin 1) | 1000/2000 Hz FSK output (see `CASSETTE.md`) |
+| **Cassette** | Audio Out (`W`) | `GP0` (Pin 1) | 1000/2000 Hz FSK output (see [CASSETTE.md](CASSETTE.md)) |
 | **Cassette** | Audio In (`R`) | `GP26` / `ADC0` (Pin 31) | 1.65 V DC-biased audio input |
 | **Status LED** | Activity Indicator | On-board LED (`GP25`) | Flashes on boot/reset; lit during SD/tape I/O |
 
@@ -72,7 +74,7 @@ Upon boot or reset, the Woz Monitor displays a `\` prompt:
 | `C100R` | `C100R` | Enter the Apple Cassette Interface (`*` prompt; see `CASSETTE.md`) |
 
 ### Running Apple-1 Integer BASIC (`$E000`)
-If `roms/apple1basic.bin` was found on the SD card at boot:
+If `/apple1/roms/apple1basic.bin` was found on the SD card at boot:
 1. Type `E000R` at the `\` prompt to cold-start Integer BASIC (`>` prompt).
 2. If you press `Ctrl-]` to return to the Woz Monitor, type `E2B3R` to warm-start BASIC without erasing your program in RAM.
 
