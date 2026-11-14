@@ -45,7 +45,7 @@ From the Woz Monitor (`\` prompt), launch the emulated ACI ROM by typing:
 C100R
 ```
 
-The emulator will display the `*` prompt. Commands follow Steve Wozniak's original ACI syntax, extended so that **omitting a filename routes data to the physical cassette ports**, while **providing a filename routes data to the SD card**.
+The emulator will display the `*` prompt. Commands follow Steve Wozniak's original ACI syntax, extended so that **omitting a filename routes data to the physical cassette ports**, while **providing a filename routes data to the SD card. The emulation returns to the *, unlike the original. To exit back to WOZMON just press return.**.
 
 ### Command Reference
 
