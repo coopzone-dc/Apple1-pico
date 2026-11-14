@@ -34,7 +34,7 @@ EAR Tip ------[ 1uF ]-----+
                           |
 GND (Pin 38) ---[ 10k ]---+---> GND (Sleeve)
 
----
+```
 
 See [./pico-runcpm.pdf](pico-runcpm.pdf)
 
