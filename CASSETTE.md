@@ -36,7 +36,7 @@ GND (Pin 38) ---[ 10k ]---+---> GND (Sleeve)
 
 ```
 
-See [./pico-runcpm.pdf](pico-runcpm.pdf)
+See circuit [./pico-runcpm.pdf](pico-runcpm.pdf)
 
 ## 2. User Operating Guide
 From the Woz Monitor (`\` prompt), launch the emulated ACI ROM by typing:
