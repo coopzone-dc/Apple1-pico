@@ -1,3 +1,6 @@
+All files / directoires are relative to the apple1 directory on the SD-Card.
+
+
 SD card layout (FAT-formatted card in the Pico's SD slot)
 
   roms/apple1basic.bin   Apple-1 Integer BASIC, loaded into RAM at $E000 at every power-up.
