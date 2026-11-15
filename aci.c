@@ -11,15 +11,6 @@
  *     *L                             list SD tapes that have a .MAP file (also: DIR)
  *     *?                             help
  *     *                              (blank line) back to the Woz Monitor
- *
- * Tape files live in the "tape" directory on the card (created on the first W);
- * filenames cannot contain '/', '\\' or ':'.
- *
- * Ranges are inclusive, like the monitor. A tape file is just the raw bytes of
- * each range one after another (no header), so read ranges back in the order
- * they were written. When ranges are given without a filename, physical cassette
- * audio is used on GP0 (out) and GP26/ADC0 (in). W and R cannot be mixed on one
- * line, and the filename must come last.
  */
 #include <stdbool.h>
 #include <stdint.h>
@@ -40,8 +31,7 @@
 #define TAPE_OUT_PIN        0     /* GP0  -> via 1uF-10uF cap + divider to MIC/Line-In */
 #define TAPE_IN_PIN         26    /* GP26 (ADC0) -> biased at 1.65V, cap-coupled to EAR */
 #define TAPE_IN_ADC_CHAN    0
-#define TAPE_ADC_MIDPOINT   2048  /* 1.65V on 12-bit ADC (0..4095) */
-#define TAPE_ADC_HYSTERESIS 100   /* Noise margin against tape hiss */
+#define TAPE_ADC_HYSTERESIS 45    /* Noise margin (~36 mV) around calibrated DC midpoint */
 #define TAPE_TIMEOUT_US     30000000ULL /* 30-second timeout waiting for tape audio */
 
 typedef struct { uint16_t start, end; } range_t;
@@ -54,8 +44,8 @@ static FILINFO fno;
 static uint8_t buf[256];
 static char    line[ACI_LINE_MAX + 1];
 static char    mapname[ACI_LINE_MAX + sizeof fno.fname + 8];
-static char    mappath[sizeof mapname + 8];
-static char    path[ACI_LINE_MAX + 16];
+static char    mappath[sizeof mapname + sizeof ACI_TAPE_DIR + 4];
+static char    path[ACI_LINE_MAX + sizeof fno.fname + sizeof ACI_TAPE_DIR + 4];
 static char    mapbuf[512];                        /* .MAP text (we write <= 32*11 bytes) */
 static range_t maprg[ACI_MAX_RANGES];              /* ranges parsed by read_map() */
 
@@ -98,6 +88,13 @@ static bool parse_range(const char *t, range_t *r, char *op)
 
 /* ---- physical cassette audio routines (Apple-1 ACI 1000/2000 Hz FSK) ------- */
 
+static inline void tape_led_toggle(void)
+{
+#ifdef PICO_DEFAULT_LED_PIN
+    gpio_xor_mask(1u << PICO_DEFAULT_LED_PIN);
+#endif
+}
+
 static inline void tape_write_cycle(uint32_t half_period_us)
 {
     gpio_put(TAPE_OUT_PIN, 1);
@@ -124,9 +121,13 @@ static const char *tape_audio_write(const aci_host_t *h, const range_t *rg, unsi
     sleep_us(500);
 
     /* 3. Write all ranges back-to-back, MSB first ('1' = 1000 Hz, '0' = 2000 Hz) */
+    uint32_t byte_count = 0;
     for (unsigned i = 0; i < nr; i++) {
         for (uint32_t addr = rg[i].start; addr <= rg[i].end; addr++) {
             uint8_t byte = h->read((uint16_t)addr);
+            if ((byte_count++ & 3u) == 0u) {
+                tape_led_toggle();
+            }
             for (int bit = 7; bit >= 0; bit--) {
                 if ((byte >> bit) & 1) {
                     tape_write_cycle(500);
@@ -137,25 +138,81 @@ static const char *tape_audio_write(const aci_host_t *h, const range_t *rg, unsi
         }
     }
 
+    /* Trailing stop cycle so the final bit (bit 0 of the last byte) has a clean rising edge */
+    tape_write_cycle(250);
+
     gpio_put(TAPE_OUT_PIN, 0);
     return NULL;
 }
 
-/* Wait for the biased ADC waveform to cross the midpoint; returns elapsed us, or 0 on timeout. */
-static uint32_t tape_wait_crossing(bool *state, uint64_t deadline_us)
+/* Measure the resting DC midpoint on GP26 over ~20 ms (covers 20 cycles of 1 kHz if tone is playing) */
+static uint16_t tape_calibrate_midpoint(void)
+{
+    uint32_t min_v = 4095;
+    uint32_t max_v = 0;
+    uint32_t sum   = 0;
+    const unsigned samples = 400;
+
+    for (unsigned i = 0; i < samples; i++) {
+        uint16_t s = adc_read();
+        if (s < min_v) min_v = s;
+        if (s > max_v) max_v = s;
+        sum += s;
+        sleep_us(50);
+    }
+
+    /* If an active audio waveform is already present (> 150 ADC counts peak-to-peak),
+     * use the exact midpoint between peak max and peak min; otherwise use the resting average. */
+    if ((max_v - min_v) > 150) {
+        return (uint16_t)((min_v + max_v) / 2);
+    }
+    return (uint16_t)(sum / samples);
+}
+
+/* Wait for a rising edge (LOW -> HIGH) on the biased ADC input; returns elapsed us, or 0 on timeout. */
+static uint32_t tape_wait_rising_edge(bool *state, uint16_t midpoint, uint64_t deadline_us)
 {
     uint64_t t0 = time_us_64();
-    while (time_us_64() < deadline_us) {
-        uint16_t sample = adc_read();
-        if (*state && sample < (TAPE_ADC_MIDPOINT - TAPE_ADC_HYSTERESIS)) {
+    uint16_t low_thresh  = (midpoint > TAPE_ADC_HYSTERESIS) ? (midpoint - TAPE_ADC_HYSTERESIS) : 0;
+    uint16_t high_thresh = midpoint + TAPE_ADC_HYSTERESIS;
+
+    /* If currently HIGH, wait for waveform to go LOW first */
+    while (*state) {
+        if (time_us_64() >= deadline_us) return 0;
+        if (adc_read() < low_thresh) {
             *state = false;
-            return (uint32_t)(time_us_64() - t0);
-        } else if (!*state && sample > (TAPE_ADC_MIDPOINT + TAPE_ADC_HYSTERESIS)) {
+        }
+    }
+
+    /* Now LOW: wait for waveform to cross above high_thresh (rising edge) */
+    while (!*state) {
+        if (time_us_64() >= deadline_us) return 0;
+        if (adc_read() > high_thresh) {
             *state = true;
             return (uint32_t)(time_us_64() - t0);
         }
     }
-    return 0; /* Timed out */
+    return 0;
+}
+
+/* Measure a single half-cycle (next zero-crossing in either direction); returns elapsed us, or 0 on timeout. */
+static uint32_t tape_wait_half_cycle(bool *state, uint16_t midpoint, uint64_t deadline_us)
+{
+    uint64_t t0 = time_us_64();
+    uint16_t low_thresh  = (midpoint > TAPE_ADC_HYSTERESIS) ? (midpoint - TAPE_ADC_HYSTERESIS) : 0;
+    uint16_t high_thresh = midpoint + TAPE_ADC_HYSTERESIS;
+
+    while (time_us_64() < deadline_us) {
+        uint16_t sample = adc_read();
+        if (*state && sample < low_thresh) {
+            *state = false;
+            return (uint32_t)(time_us_64() - t0);
+        } else if (!*state && sample > high_thresh) {
+            *state = true;
+            return (uint32_t)(time_us_64() - t0);
+        }
+    }
+    return 0;
 }
 
 static const char *tape_audio_read(const aci_host_t *h, const range_t *rg, unsigned nr)
@@ -164,48 +221,53 @@ static const char *tape_audio_read(const aci_host_t *h, const range_t *rg, unsig
     adc_gpio_init(TAPE_IN_PIN);
     adc_select_input(TAPE_IN_ADC_CHAN);
 
+    uint16_t midpoint = tape_calibrate_midpoint();
     uint64_t deadline = time_us_64() + TAPE_TIMEOUT_US;
-    bool state = (adc_read() > TAPE_ADC_MIDPOINT);
+    bool state = (adc_read() > midpoint);
 
-    /* 1. Detect 1000 Hz header tone (~100 consecutive half-cycles around 500 us) */
-    unsigned header_half_cycles = 0;
-    while (header_half_cycles < 100) {
-        uint32_t dt = tape_wait_crossing(&state, deadline);
+    /* 1. Lock onto the 1000 Hz leader tone (~100 consecutive half-cycles around 500 us) */
+    unsigned leader_half_cycles = 0;
+    while (leader_half_cycles < 100) {
+        uint32_t dt = tape_wait_half_cycle(&state, midpoint, deadline);
         if (dt == 0) return "TIMEOUT";
         if (dt > 375 && dt < 750) {
-            header_half_cycles++;
+            leader_half_cycles++;
         } else {
-            header_half_cycles = 0;
+            leader_half_cycles = 0;
         }
     }
 
-    /* 2. Wait for the sync bit (first short half-cycle < 375 us after leader) */
+    /* 2. Detect the 250 us sync pulse (first half-cycle < 375 us after the 1000 Hz leader) */
     for (;;) {
-        uint32_t dt = tape_wait_crossing(&state, deadline);
+        uint32_t dt = tape_wait_half_cycle(&state, midpoint, deadline);
         if (dt == 0) return "TIMEOUT";
         if (dt < 375) {
-            /* Consume second half of sync bit (~500 us) to align to bit 7 of first byte */
-            if (tape_wait_crossing(&state, deadline) == 0) return "TIMEOUT";
+            /* We just saw the falling edge at the end of the 250 us HIGH sync pulse.
+             * Wait for the next rising edge (end of the 500 us LOW sync half-cycle)
+             * to align cleanly to the start of Bit 7 of the first data byte. */
+            if (tape_wait_rising_edge(&state, midpoint, deadline) == 0) return "TIMEOUT";
             break;
         }
     }
 
-    /* 3. Read all ranges back-to-back, MSB first */
+    /* 3. Read all ranges back-to-back, MSB first, using full rising-to-rising cycles */
+    uint32_t byte_count = 0;
     for (unsigned i = 0; i < nr; i++) {
         for (uint32_t addr = rg[i].start; addr <= rg[i].end; addr++) {
             uint8_t byte = 0;
-            /* Refresh deadline per byte so long multi-minute loads don't time out mid-stream */
             deadline = time_us_64() + 2000000ULL;
             for (int bit = 7; bit >= 0; bit--) {
-                uint32_t t1 = tape_wait_crossing(&state, deadline);
-                uint32_t t2 = tape_wait_crossing(&state, deadline);
-                if (t1 == 0 || t2 == 0) return "TAPE ERR";
-                /* Full cycle > 750 us = 1000 Hz ('1'), <= 750 us = 2000 Hz ('0') */
-                if ((t1 + t2) > 750) {
+                uint32_t period = tape_wait_rising_edge(&state, midpoint, deadline);
+                if (period == 0) return "TAPE ERR";
+                /* 1000 Hz ('1') = ~1000 us, 2000 Hz ('0') = ~500 us; threshold at 750 us */
+                if (period > 750) {
                     byte |= (uint8_t)(1u << bit);
                 }
             }
             h->write((uint16_t)addr, byte);
+            if ((byte_count++ & 3u) == 0u) {
+                tape_led_toggle();
+            }
         }
     }
 
@@ -241,7 +303,7 @@ static void map_name(const char *name, char *out, size_t size)
     strcpy(out + base, ".MAP");
 }
 
-/* "NAME" -> "tape/NAME" */
+/* "NAME" -> "apple1/tape/NAME" */
 static void tape_path(char *out, size_t size, const char *name)
 {
     snprintf(out, size, ACI_TAPE_DIR "/%s", name);
