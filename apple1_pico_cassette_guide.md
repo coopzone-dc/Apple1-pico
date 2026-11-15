@@ -19,13 +19,12 @@ The emulator uses two GPIO pins on the Raspberry Pi Pico / Pico 2 to communicate
 ```text
   WRITING TO TAPE (Pico -> Cassette Recorder MIC / Line-In)
   ---------------------------------------------------------
-                     1uF - 10uF
-  GP0 (Pin 1) o---------||---------+---------> To Cassette MIC / Line-In
-                                   |
-                                  [ ] 10k Potentiometer (Voltage Divider)
-                                  [ ] <--- Wiper to MIC (set ~20-50mV for MIC)
-                                   |
-  Pico GND    o--------------------+---------> To Cassette Sleeve / Ground
+                   10k     1uF - 10uF
+  GP0 (Pin 1) o----[]--------||---------+---------> To Cassette MIC
+                        |
+                       [ ] 100ohm
+                        |
+  Pico GND    o--------------------+---------------> To Cassette Sleeve / Ground
 
 
   READING FROM TAPE (Cassette Recorder EAR / Headphone -> Pico)
@@ -68,13 +67,15 @@ From the Woz Monitor (`\` prompt), type **`C100R`** and press `RETURN` to enter 
 1. Insert a blank tape, cue past the clear leader, and press **RECORD + PLAY** on the cassette deck.
 2. Type your range command with **no filename** (e.g., `0300.03FFW`) and press `RETURN`.
 3. The Pico LED turns on and outputs a **10-second 1000 Hz leader tone**, followed by the sync bit, data bytes, and trailing stop cycle.
-4. When `OK` appears on screen, press **STOP** on the recorder.
+4. During data write the onboard LED will flicker, indicating activity
+5. When `OK` appears on screen, press **STOP** on the recorder.
 
 ### Loading from Cassette (`R`)
 1. Rewind the tape to the start of the recording.
 2. Type your range command with **no filename** (e.g., `0300.03FFR`), **without pressing `RETURN` yet**.
 3. Press **PLAY** on the cassette deck, wait 1–2 seconds until you hear the steady 1000 Hz leader tone, then press `RETURN`.
-4. The Pico calibrates its DC midpoint, locks onto the leader and sync bit, decodes all bytes into RAM, and prints `OK`.
+4. During data write the onboard LED will flicker, indicating activity
+5. The Pico calibrates its DC midpoint, locks onto the leader and sync bit, decodes all bytes into RAM, and prints `OK`.
 
 ---
 
