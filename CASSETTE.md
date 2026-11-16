@@ -19,10 +19,11 @@ The cassette interface uses the first available digital GPIO pin (**GP0**) for F
 ```text
 TAPE OUT (Pico -> Cassette Recorder MIC / Line-In)
 --------------------------------------------------
-Pico GP0 (Pin 1) ----||----+----[ 10k Pot ]----+----> Cassette MIC / Line-In Tip
-                   1uF-10uF |                   |
+Pico GP0 (Pin 1) ---[10k]----------[100R]-----GND
+                            |
+                            ||--------> Cassette MIC / Line-In Tip
+                             1uF-10uF
                             +-------------------+----> Cassette GND (Sleeve)
-                            (Set wiper ~10%-20% for MIC jack, ~50% for Line-In)
 
 TAPE IN (Cassette Recorder EAR / Headphone -> Pico)
 ---------------------------------------------------
