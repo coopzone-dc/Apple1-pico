@@ -8,9 +8,7 @@
  *   $C100-$C1FF  Emulated cassette interface ROM (C100R), "tape" = file on SD card
  *   $C200-$CFFF  RAM
  *   $D000-$D0FF  6821 PIA (keyboard/display at $D010-$D013)
- *   $D100-$DFFF  RAM
- *   $E000-$EFFF  RAM: Integer BASIC, loaded from <APPLE1_ROOT>/roms/apple1basic.bin on the SD card at boot
- *   $F000-$FEFF  RAM
+ *   $D100-$FEFF  RAM   (e.g. BASIC at $E000-$EFFF if flagged AUTO in <APPLE1_ROOT>/tape)
  *   $FF00-$FFFF  Woz Monitor ROM
  *
  * Edit the regions[] table to change the map.
@@ -38,9 +36,6 @@
 #define LED_FLASH_MS     120       /* on-board LED: flash length / gap            */
 #define LED_FLASHES_BOOT 2         /* flashes at power-up                         */
 #define LED_FLASHES_RESET 1        /* flashes on Ctrl-] reset                     */
-
-#define BASIC_PATH       APPLE1_ROOT "/roms/apple1basic.bin"   /* on the SD card, loaded at $E000 at boot */
-#define BASIC_BASE       0xE000
 
 /* ------------------------------------------------------------------------ */
 /* On-board LED (plain Pico / Pico 2; boards with the LED on the wireless   */
@@ -218,8 +213,6 @@ static void pia_write(uint16_t addr, uint8_t v)
 /* Cassette interface                                                       */
 /* The ROM at $C100 reads a command line into $0200, then writes to the     */
 /* trap register; the SD-card "tape" operation runs here (aci.c).           */
-/* Software that bit-bangs the real tape hardware at $C000-$C0FF is NOT    */
-/* emulated - only the ROM's user interface.                                */
 /* ------------------------------------------------------------------------ */
 static uint8_t aci_mem_read(uint16_t a)             { return mem[a]; }
 static void    aci_mem_write(uint16_t a, uint8_t v) { if (kind[a >> 8] == K_RAM) mem[a] = v; }
@@ -284,26 +277,17 @@ int main(void)
     led_flash(LED_FLASHES_BOOT);         /* power-up: sign of life even with no terminal */
     map_init();
 
-    /* BASIC comes from the SD card and lands in RAM, so it is read/write. */
-    led_set(true);
-    int basic = aci_load_rom(&aci_host, BASIC_PATH, BASIC_BASE);
-    led_set(false);
-
     while (!stdio_usb_connected()) sleep_ms(20);
     sleep_ms(300);                       /* let the terminal settle */
 
     out_str("\r\nAPPLE-1 ON PICO   (CTRL-] = RESET)\r\n");
-    if (basic > 0) {
-        char msg[64];
-        snprintf(msg, sizeof msg, "BASIC: %d BYTES AT E000 - START WITH E000R\r\n", basic);
-        out_str(msg);
-    } else {
-        out_str("BASIC NOT LOADED: ");
-        if (basic == -1)      out_str("NO SD CARD");
-        else if (basic == -2) { out_str(BASIC_PATH); out_str(" NOT FOUND"); }
-        else                  out_str("READ ERROR");
-        out_str("\r\n");
-        if (basic == 0) out_str("(FILE IS EMPTY)\r\n");
+
+    led_set(true);
+    int loaded = aci_autoload(&aci_host);
+    led_set(false);
+
+    if (loaded < 0) {
+        out_str("NO SD CARD\r\n");
     }
     out_flush();
     machine_reset();

@@ -2,7 +2,7 @@
 
 This is one of four projects for the pico,  RunCPM, RC2040 and RC2040-ROMWBW are the others, sof far. They all use the same PCB so you can switch between them by just uploading the .uf2 file for the one you want.
 
-An Apple-1 computer emulator running on the **Raspberry Pi Pico (RP2040)** and **Raspberry Pi Pico 2 (RP2350)**, featuring cycle-accurate 1.023 MHz 6502 CPU throttling, USB CDC serial console I/O, SD-card ROM and tape loading, and real-time audio cassette interface support.
+An Apple-1 computer emulator running on the **Raspberry Pi Pico (RP2040)** and **Raspberry Pi Pico 2 (RP2350)**, featuring cycle-accurate 1.023 MHz 6502 CPU throttling, USB CDC serial console I/O, unified SD-card tape & boot image loading, and real-time audio cassette interface support.
 
 ---
 
@@ -22,17 +22,17 @@ The emulator uses the Pico's **USB port** as the terminal (keyboard and display)
 | **Status LED** | Activity Indicator | On-board LED (`GP25`) | Flashes on boot/reset; lit during SD/tape I/O |
 
 ### SD Card Directory Layout
-Format the microSD card as **FAT32** and place your files in the following structure:
+Just like the original Apple-1—where only the Woz Monitor resided in ROM and Integer BASIC was loaded from tape—all SD-card images live in a single unified `/apple1/tape/` folder. Format the microSD card as **FAT32** and place your files in the following structure:
 ```text
 /
 /apple1
-       ├── roms/
-       │   └── apple1basic.bin      # Apple-1 Integer BASIC (loaded automatically at $E000 on boot)
        └── tape/
+           ├── BASIC.DAT            # Apple-1 Integer BASIC binary image
+           ├── BASIC.MAP            # Map file with "AUTO" + "E000.EFFF" (loaded at boot)
            ├── PROGRAM.DAT          # Saved binary tape images
-           └── PROGRAM.MAP          # Auto-generated memory range map ("0300.03FF")
+           └── PROGRAM.MAP          # Memory range map ("0300.03FF", loaded on demand via *R)
 ```
-`apple1` is the default root folder. Choose another one at build time with `cmake -DAPPLE1_ROOT=myfolder ..` (a plain folder name, no slashes); BASIC loading and all tape files then use `/myfolder/roms/` and `/myfolder/tape/`.
+`apple1` is the default root folder. Choose another one at build time with `cmake -DAPPLE1_ROOT=myfolder ..` (a plain folder name, no slashes); all tape and autoloaded images then use `/myfolder/tape/`.
 
 ---
 
@@ -53,14 +53,14 @@ Format the microSD card as **FAT32** and place your files in the following struc
 ## 3. User Operating Guide
 
 ### Connecting a Serial Terminal
-Open any serial terminal (PuTTY, Tera Term, `minicom`, `screen`, or `tio`) on the Pico's USB serial port. Because the emulator waits for a USB CDC host connection before booting, the welcome banner appears immediately once your terminal connects:
+Open any serial terminal (PuTTY, Tera Term, `minicom`, `screen`, or `tio`) on the Pico's USB serial port. Because the emulator waits for a USB CDC host connection before booting, the welcome banner appears immediately once your terminal connects, along with a line for each `AUTO`-flagged tape image loaded into RAM:
 
 ```text
 APPLE-1 ON PICO   (CTRL-] = RESET)
-BASIC: 4096 BYTES AT E000 - START WITH E000R
+AUTOLOAD: BASIC.DAT (E000.EFFF)
 ```
 
-* **Reset Key (`Ctrl-]`):** Acts as the Apple-1 hardware **RESET** button. Clears the 6821 PIA registers, resets the 6502 CPU vector to `$FF00` (Woz Monitor), flashes the LED once, and preserves all RAM contents.
+* **Reset Key (`Ctrl-]`):** Acts as the Apple-1 hardware **RESET** button. Clears the 6821 PIA registers, resets the 6502 CPU vector to `$FF00` (Woz Monitor), flashes the LED once, and preserves all RAM contents (including BASIC and any other autoloaded images).
 * **Uppercase Conversion:** Lowercase letters typed on a modern keyboard are automatically converted to uppercase to match the Apple-1's ASCII character set.
 * **Backspace / Delete:** Both `Backspace` (`0x08`) and `DEL` (`0x7F`) map to the Apple-1 rubout character (`_`).
 
@@ -75,10 +75,16 @@ Upon boot or reset, the Woz Monitor displays a `\` prompt:
 | `ADDR R` | `E000R` | Execute 6502 code starting at `$E000` (launches BASIC) |
 | `C100R` | `C100R` | Enter the Apple Cassette Interface (`*` prompt; see `CASSETTE.md`) |
 
-### Running Apple-1 Integer BASIC (`$E000`)
-If `/apple1/roms/apple1basic.bin` was found on the SD card at boot:
-1. Type `E000R` at the `\` prompt to cold-start Integer BASIC (`>` prompt).
-2. If you press `Ctrl-]` to return to the Woz Monitor, type `E2B3R` to warm-start BASIC without erasing your program in RAM.
+### Setting Up & Running Apple-1 Integer BASIC (`$E000`)
+To load Integer BASIC automatically at boot:
+1. Copy the 4,096-byte binary image to `/apple1/tape/BASIC.DAT` on the SD card and create `/apple1/tape/BASIC.MAP` containing:
+   ```text
+   AUTO
+   E000.EFFF
+   ```
+   *(Alternatively, load BASIC into `$E000–$EFFF` via physical cassette or Woz Monitor hex dump and save it directly from the emulator using `*E000.EFFFW BASIC.DAT AUTO`.)*
+2. Type `E000R` at the `\` prompt to cold-start Integer BASIC (`>` prompt).
+3. If you press `Ctrl-]` to return to the Woz Monitor, type `E2B3R` to warm-start BASIC without erasing your program in RAM.
 
 ---
 
@@ -94,8 +100,8 @@ The memory map is configured in `main.c` via the `regions[]` table and decoded o
 | `$C200 – $CFFF` | `K_RAM` | 3.5 KB | Contiguous user RAM |
 | `$D000 – $D0FF` | `K_PIA` | 256 B | Motorola 6821 PIA (`$D010–$D013` keyboard & display I/O) |
 | `$D100 – $DFFF` | `K_RAM` | 3.75 KB | Contiguous user RAM |
-| `$E000 – $EFFF` | `K_RAM` | 4 KB | Read/write RAM preloaded with `<APPLE1_ROOT>/roms/apple1basic.bin` at boot |
-| `$F000 – $FEFF` | `K_RAM` | 3.75 KB | Contiguous user RAM (available for Krusader or custom ROMs) |
+| `$E000 – $EFFF` | `K_RAM` | 4 KB | Read/write RAM (e.g., Integer BASIC autoloaded from `<APPLE1_ROOT>/tape`) |
+| `$F000 – $FEFF` | `K_RAM` | 3.75 KB | Contiguous user RAM (available for Krusader or custom tape images) |
 | `$FF00 – $FFFF` | `K_ROM` | 256 B | Steve Wozniak's Woz Monitor ROM (`wozmon.h`) |
 
 ---
@@ -120,6 +126,6 @@ The memory map is configured in `main.c` via the `regions[]` table and decoded o
 * **`aci_write(uint16_t addr, uint8_t v)`**
   Monitors writes to the `$C000–$C0FF` I/O page. When the `$C100` ROM finishes reading a command line into `$0200` and writes to `ACI_TRAP_ADDR` (`$C0F0`), this function illuminates the status LED and invokes `aci_execute(&aci_host)` in `aci.c`.
 * **`machine_reset()`**
-  Clears the 6821 PIA state and invokes `cpu_reset()` to load the 6502 Program Counter from `$FFFC–$FFFD`.
+  Clears the 6821 PIA state and invokes `cpu_reset()` to load the 6502 Program Counter from `$FFFC–$FFFD`, leaving all RAM contents untouched.
 * **`main()`**
-  Initializes USB stdio and the status LED, builds the memory map, loads `<APPLE1_ROOT>/roms/apple1basic.bin` from the SD card into `$E000`, waits for a USB terminal connection, and enters the main emulation loop. Executes `cpu_run(SLICE_CYCLES)` (1,000 cycles ≈ 1 ms per slice) and paces execution against `time_us_64()` so the virtual 6502 runs at the authentic **1.022727 MHz** Apple-1 clock speed.
+  Initializes USB stdio and the status LED, builds the memory map, waits for a USB terminal connection, calls `aci_autoload(&aci_host)` to load any `AUTO`-flagged tape images from `<APPLE1_ROOT>/tape` into RAM, and enters the main emulation loop. Executes `cpu_run(SLICE_CYCLES)` (1,000 cycles ≈ 1 ms per slice) and paces execution against `time_us_64()` so the virtual 6502 runs at the authentic **1.022727 MHz** Apple-1 clock speed.

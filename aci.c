@@ -3,14 +3,14 @@
  *
  * Type C100R in the Woz Monitor to get the '*' prompt of the cassette interface:
  *
- *     *100.200W 500.600W FILE.DAT    write the ranges to SD card
- *     *100.200R FILE.DAT             read the SD file into the range(s)
- *     *100.200W                      write the ranges to physical cassette (GPIO 0)
- *     *100.200R                      read from physical cassette (GPIO 26 / ADC0)
- *     *R [FILE.DAT]                  read from SD, ranges taken from FILE.MAP (or TAPE.MAP)
- *     *L                             list SD tapes that have a .MAP file (also: DIR)
- *     *?                             help
- *     *                              (blank line) back to the Woz Monitor
+ *     *100.200W 500.600W FILE.DAT [AUTO]  write ranges to SD (optional AUTO boot flag)
+ *     *100.200R FILE.DAT                  read the SD file into the range(s)
+ *     *100.200W                           write the ranges to physical cassette (GPIO 0)
+ *     *100.200R                           read from physical cassette (GPIO 26 / ADC0)
+ *     *R [FILE.DAT]                       read from SD, ranges taken from FILE.MAP (or TAPE.MAP)
+ *     *L                                  list SD tapes that have a .MAP file (also: DIR)
+ *     *?                                  help
+ *     *                                   (blank line) back to the Woz Monitor
  */
 #include <stdbool.h>
 #include <stdint.h>
@@ -48,8 +48,9 @@ static char    line[ACI_LINE_MAX + 1];
 static char    mapname[ACI_LINE_MAX + sizeof fno.fname + 8];
 static char    mappath[sizeof mapname + sizeof ACI_TAPE_DIR + 4];
 static char    path[ACI_LINE_MAX + sizeof fno.fname + sizeof ACI_TAPE_DIR + 4];
-static char    mapbuf[512];                        /* .MAP text (we write <= 32*11 bytes) */
+static char    mapbuf[512];                        /* .MAP text (we write <= 32*11 + 8 bytes) */
 static range_t maprg[ACI_MAX_RANGES];              /* ranges parsed by read_map() */
+static bool    map_auto;                           /* true if .MAP contains AUTO flag */
 
 static void say(const aci_host_t *h, const char *s) { while (*s) h->put_char(*s++); }
 
@@ -325,15 +326,26 @@ static bool valid_tape_name(const char *name)
     return true;
 }
 
-/* One line of a .MAP file -> range. Accepts "XXXX.YYYY" or "XXXX-YYYY" (any case,
- * 1-4 hex digits, surrounding blanks, trailing ';' comment). Comments, blank and
- * malformed lines return false. */
-static bool parse_map_line(const char *s, const char *e, range_t *r)
+/* One line of a .MAP file -> range or AUTO flag.
+ * Accepts "AUTO", "XXXX.YYYY", or "XXXX-YYYY" (any case, 1-4 hex digits,
+ * optional trailing "AUTO" on the same line, surrounding blanks, trailing ';' comment). */
+static bool parse_map_line(const char *s, const char *e, range_t *r, bool *is_auto)
 {
+    while (s < e && (*s == ' ' || *s == '\t')) s++;
+    if (s >= e || *s == ';') return false;
+
+    /* Check for standalone "AUTO" directive line */
+    if ((e - s) >= 4 && !strncasecmp(s, "AUTO", 4)) {
+        const char *p = s + 4;
+        while (p < e && (*p == ' ' || *p == '\t')) p++;
+        if (p >= e || *p == ';') {
+            *is_auto = true;
+            return false;   /* flag parsed, no address range on this line */
+        }
+    }
+
     int d;
     unsigned v = 0, n = 0;
-
-    while (s < e && (*s == ' ' || *s == '\t')) s++;
     while (s < e && (d = hexval(*s)) >= 0) { v = (v << 4) | (unsigned)d; s++; n++; }
     if (n < 1 || n > 4 || s >= e || (*s != '.' && *s != '-')) return false;
     r->start = (uint16_t)v;
@@ -345,14 +357,29 @@ static bool parse_map_line(const char *s, const char *e, range_t *r)
     r->end = (uint16_t)v;
 
     while (s < e && (*s == ' ' || *s == '\t')) s++;
+
+    /* Also allow inline "XXXX.YYYY AUTO" */
+    if ((e - s) >= 4 && !strncasecmp(s, "AUTO", 4)) {
+        s += 4;
+        while (s < e && (*s == ' ' || *s == '\t')) s++;
+        if (s >= e || *s == ';') {
+            *is_auto = true;
+            return r->end >= r->start;
+        }
+        return false;
+    }
+
     if (s < e && *s != ';') return false;
     return r->end >= r->start;
 }
 
 /* Write the .MAP file for a tape file just saved. Returns an error word or NULL. */
-static const char *write_map(const char *name, const range_t *rg, unsigned nr)
+static const char *write_map(const char *name, const range_t *rg, unsigned nr, bool autoload)
 {
     unsigned len = 0;
+    if (autoload) {
+        len += (unsigned)snprintf(mapbuf + len, sizeof mapbuf - len, "AUTO\r\n");
+    }
     for (unsigned i = 0; i < nr; i++)
         len += (unsigned)snprintf(mapbuf + len, sizeof mapbuf - len, "%04X.%04X\r\n",
                                   (unsigned)rg[i].start, (unsigned)rg[i].end);
@@ -366,10 +393,11 @@ static const char *write_map(const char *name, const range_t *rg, unsigned nr)
     return (fr != FR_OK || fc != FR_OK || done != len) ? "MAP" : NULL;
 }
 
-/* Read the .MAP that belongs to tape file 'name' into maprg[].
+/* Read the .MAP that belongs to tape file 'name' into maprg[] and map_auto.
  * Returns the number of ranges found, or -1 if there is no readable .MAP. */
 static int read_map(const char *name)
 {
+    map_auto = false;
     map_name(name, mapname, sizeof mapname);
     tape_path(mappath, sizeof mappath, mapname);
     if (f_open(&fil, mappath, FA_READ) != FR_OK) return -1;
@@ -393,7 +421,7 @@ static int read_map(const char *name)
     while (*q && n < ACI_MAX_RANGES) {
         const char *e = q;
         while (*e && *e != '\r' && *e != '\n') e++;
-        if (parse_map_line(q, e, &maprg[n])) n++;
+        if (parse_map_line(q, e, &maprg[n], &map_auto)) n++;
         q = e;
         while (*q == '\r' || *q == '\n') q++;
     }
@@ -404,7 +432,7 @@ static int read_map(const char *name)
 
 static void help(const aci_host_t *h)
 {
-    say(h, "100.200W 500.600W FILE.DAT  WRITE TO SD\r"
+    say(h, "100.200W FILE.DAT [AUTO]    WRITE TO SD (OPTIONAL AUTO BOOT)\r"
            "100.200R FILE.DAT           READ FROM SD\r"
            "100.200W                    WRITE TO CASSETTE (GP0)\r"
            "100.200R                    READ FROM CASSETTE (GP26)\r"
@@ -436,8 +464,9 @@ static void list_files(const aci_host_t *h)
         int n = read_map(fno.fname);
         if (n < 0) continue;                                  /* no .MAP: not listed */
 
-        snprintf(out, sizeof out, "%-12s %lu ($%04lX)\r", fno.fname,
-                 (unsigned long)fno.fsize, (unsigned long)fno.fsize);
+        snprintf(out, sizeof out, "%-12s %lu ($%04lX)%s\r", fno.fname,
+                 (unsigned long)fno.fsize, (unsigned long)fno.fsize,
+                 map_auto ? " [AUTO]" : "");
         say(h, out);
         files++;
 
@@ -494,7 +523,7 @@ void aci_execute(const aci_host_t *h)
             rg[nr++] = r;
             op = o;
         } else {
-            if (nw == (nr ? 1u : 2u)) { fail(h, "SYNTAX"); return; }   /* filename goes last */
+            if (nw == 2u) { fail(h, "SYNTAX"); return; }   /* up to 2 words: e.g. FILE [AUTO] or R [FILE] */
             words[nw++] = tok;
         }
     }
@@ -512,6 +541,7 @@ void aci_execute(const aci_host_t *h)
     /* Decide what was asked for on the SD card. */
     const char *name;
     bool from_map = false;
+    bool autoload = false;
     if (nr == 0) {
         if (nw == 1 && !strcmp(words[0], "?")) { help(h); return; }
         if (nw == 1 && (!strcasecmp(words[0], "L") || !strcasecmp(words[0], "DIR"))) { list_files(h); return; }
@@ -525,6 +555,14 @@ void aci_execute(const aci_host_t *h)
         }
     } else {
         name = words[0];
+        if (nw == 2) {
+            if (op == 'W' && !strcasecmp(words[1], "AUTO")) {
+                autoload = true;
+            } else {
+                fail(h, "SYNTAX");
+                return;
+            }
+        }
     }
 
     if (!valid_tape_name(name)) { fail(h, "NAME"); return; }
@@ -577,7 +615,7 @@ void aci_execute(const aci_host_t *h)
                 }
             }
             if (f_close(&fil) != FR_OK && !err) err = "CLOSE";
-            if (op == 'W' && !err) err = write_map(name, rg, nr);   /* record where it came from */
+            if (op == 'W' && !err) err = write_map(name, rg, nr, autoload); /* record ranges & AUTO flag */
         }
     }
     f_mount(NULL, "0:", 0);                            /* unmount: card can be swapped */
@@ -586,64 +624,59 @@ void aci_execute(const aci_host_t *h)
     else     { say(h, "OK"); h->put_char('\r'); }
 }
 
-/* ---- ROM images from the SD card ------------------------------------------- */
+/* ---- Boot-time autoloading from <APPLE1_ROOT>/tape ------------------------- */
 
-/* One whitespace-separated token of a Woz Monitor style hex dump:
- * "E000:" sets the address, a two-digit hex number is a data byte, the rest is ignored. */
-static void rom_token(const aci_host_t *h, const char *t, unsigned len, uint32_t *addr, int *total)
-{
-    unsigned v = 0, n = 0;
-    int d;
-    while (n < len && (d = hexval(t[n])) >= 0) { v = (v << 4) | (unsigned)d; n++; }
-    if (n == 4 && len == 5 && t[4] == ':') { *addr = v; return; }
-    if (n == 2 && len == 2 && *addr <= 0xFFFF) { h->write((uint16_t)(*addr), (uint8_t)v); (*addr)++; (*total)++; }
-}
-
-/* Load a ROM image from the card into memory through host->write.
- *   binary file : loaded at 'base'
- *   text file   : Woz Monitor hex dump ("E000: 4C B0 E2 ..."), bytes go to the dump's addresses
- * Returns the number of bytes loaded, or -1 no SD card, -2 file not found, -3 read error. */
-int aci_load_rom(const aci_host_t *h, const char *file, uint16_t base)
+/* Scan <APPLE1_ROOT>/tape for tape files whose .MAP has the AUTO flag set and
+ * load them into RAM via host->write. Returns number of images loaded, or -1 if no SD card. */
+int aci_autoload(const aci_host_t *h)
 {
     if (f_mount(&fs, "0:", 1) != FR_OK) return -1;
-    if (f_open(&fil, file, FA_READ) != FR_OK) { f_mount(NULL, "0:", 0); return -2; }
 
-    int total = 0, rc = 0;
-    bool first = true, text = false;
-    uint32_t addr = base;
-    char tok[8];
-    unsigned tl = 0;
+    FRESULT dr = f_opendir(&dir, ACI_TAPE_DIR);
+    if (dr != FR_OK) {
+        f_mount(NULL, "0:", 0);
+        return 0;
+    }
 
+    int loaded = 0;
     for (;;) {
-        UINT n = 0;
-        if (f_read(&fil, buf, sizeof buf, &n) != FR_OK) { rc = -3; break; }
-        if (n == 0) break;
+        if (f_readdir(&dir, &fno) != FR_OK || fno.fname[0] == '\0') break;
+        if (fno.fattrib & (AM_HID | AM_SYS | AM_DIR)) continue;
+        if (is_map_name(fno.fname)) continue;
 
-        if (first) {                       /* text if the first block is all printable ASCII */
-            text = true;
-            for (UINT k = 0; k < n; k++) {
-                uint8_t c = buf[k];
-                if (!((c >= 0x20 && c <= 0x7E) || (c >= 0x09 && c <= 0x0D))) { text = false; break; }
+        int nr = read_map(fno.fname);
+        if (nr <= 0 || !map_auto) continue;
+
+        tape_path(path, sizeof path, fno.fname);
+        if (f_open(&fil, path, FA_READ) != FR_OK) continue;
+
+        bool ok = true;
+        for (int i = 0; i < nr && ok; i++) {
+            uint32_t a = maprg[i].start;
+            uint32_t left = (uint32_t)maprg[i].end - maprg[i].start + 1;
+            while (left && ok) {
+                UINT n = left > sizeof buf ? (UINT)sizeof buf : (UINT)left;
+                UINT done = 0;
+                FRESULT fr = f_read(&fil, buf, n, &done);
+                for (UINT k = 0; k < done; k++) h->write((uint16_t)(a + k), buf[k]);
+                if (fr != FR_OK || done != n) ok = false;
+                a += n;
+                left -= n;
             }
-            first = false;
         }
+        f_close(&fil);
 
-        for (UINT k = 0; k < n; k++) {
-            if (!text) {
-                if (addr <= 0xFFFF) { h->write((uint16_t)addr, buf[k]); addr++; total++; }
-            } else if (buf[k] <= ' ') {
-                if (tl && tl <= sizeof tok) rom_token(h, tok, tl, &addr, &total);
-                tl = 0;
-            } else if (tl < sizeof tok) {
-                tok[tl++] = (char)buf[k];
-            } else {
-                tl = sizeof tok + 1;       /* too long to be a token: ignore it */
-            }
+        if (ok) {
+            char msg[sizeof fno.fname + 40];
+            snprintf(msg, sizeof msg, "AUTOLOAD: %s (%04X.%04X%s)\r\n",
+                     fno.fname, (unsigned)maprg[0].start, (unsigned)maprg[nr - 1].end,
+                     nr > 1 ? "..." : "");
+            say(h, msg);
+            loaded++;
         }
     }
-    if (text && tl && tl <= sizeof tok) rom_token(h, tok, tl, &addr, &total);
 
-    f_close(&fil);
+    f_closedir(&dir);
     f_mount(NULL, "0:", 0);
-    return rc ? rc : total;
+    return loaded;
 }

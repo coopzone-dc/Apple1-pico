@@ -4,8 +4,8 @@
 #include <stdint.h>
 
 /* Everything the emulator keeps on the SD card lives under this folder:
- *     /apple1/roms/apple1basic.bin     BASIC image, loaded at boot
  *     /apple1/tape/                    tape files (FILE.DAT + FILE.MAP)
+ *                                      (.MAP files with an AUTO line load at boot)
  * Change it with  cmake -DAPPLE1_ROOT=name  (no leading or trailing slash). */
 #ifndef APPLE1_ROOT
 #define APPLE1_ROOT "apple1"
@@ -20,8 +20,9 @@ typedef struct {
 /* Execute the command line the ACI ROM left in the monitor buffer ($0200). */
 void aci_execute(const aci_host_t *host);
 
-/* Load a ROM image from the SD card into memory: binary at 'base', or a Woz Monitor hex dump.
- * Returns bytes loaded, or -1 no SD card, -2 file not found, -3 read error. */
-int aci_load_rom(const aci_host_t *host, const char *path, uint16_t base);
+/* Scan <APPLE1_ROOT>/tape for .MAP files containing the AUTO flag and load their
+ * corresponding image files into memory through host->write.
+ * Returns number of images loaded, or -1 if no SD card is present. */
+int aci_autoload(const aci_host_t *host);
 
 #endif

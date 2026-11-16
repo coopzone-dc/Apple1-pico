@@ -1,6 +1,6 @@
 # Apple-1 Pico Cassette Interface Guide (`aci.c`)
 
-This document describes the hardware wiring, user commands, audio protocol, and internal firmware routines for the physical cassette tape interface in `apple1_pico`.
+This document describes the hardware wiring, user commands, audio protocol, and internal firmware routines for the physical cassette tape and SD-card tape image interface in `apple1_pico`.
 
 ---
 
@@ -58,13 +58,16 @@ The emulator prints `*` and waits for a command.
 | `0300.03FFR` | **Physical Cassette** | Load `$0300–$03FF` from tape via `GP26` (no filename given) |
 | `0100.01FFW 0300.03FFW` | **Physical Cassette** | Record multiple non-contiguous ranges back-to-back in one pass |
 | `0300.03FFW FILE.DAT` | **SD Card** | Save `$0300–$03FF` to `/apple1/tape/FILE.DAT` + `FILE.MAP` |
+| `E000.EFFFW BASIC.DAT AUTO` | **SD Card (Autoload)** | Save `$E000–$EFFF` to `/apple1/tape/BASIC.DAT` and add `AUTO` to `BASIC.MAP` for automatic boot loading |
 | `0300.03FFR FILE.DAT` | **SD Card** | Load `/apple1/tape/FILE.DAT` into `$0300–$03FF` |
 | `R [FILE.DAT]` | **SD Card** | Load `/apple1/tape/FILE.DAT` (or `TAPE.DAT`) using `.MAP` ranges |
-| `L` or `DIR` | **SD Card** | List all `.MAP`-indexed tape files in `/apple1/tape` |
+| `L` or `DIR` | **SD Card** | List all `.MAP`-indexed tape files in `/apple1/tape` (`[AUTO]` marks boot-loaded images) |
 | `?` | Console | Print summary of available commands |
 | *(Blank line / RETURN)* | Console | Exit ACI and return to the Woz Monitor (`\`) |
 
-> **SD root folder:** `/apple1` is the default. Choose another folder at build time with `cmake -DAPPLE1_ROOT=myfolder ..` (a plain name, no slashes); BASIC loading and all tape files then use `/myfolder/roms/` and `/myfolder/tape/`.
+> **SD root folder:** `/apple1` is the default. Choose another folder at build time with `cmake -DAPPLE1_ROOT=myfolder ..` (a plain name, no slashes); all tape and autoloaded images then use `/myfolder/tape/`.
+
+> **Boot Autoloading via `.MAP` Files:** Any image in `/apple1/tape/` whose `.MAP` file contains the `AUTO` directive (either on its own line or after a range, e.g., `E000.EFFF AUTO`) is automatically loaded into RAM at cold boot. Because Integer BASIC on the original Apple-1 was distributed on cassette tape rather than ROM, placing `BASIC.DAT` + `BASIC.MAP` (with `AUTO`) in `/apple1/tape/` allows BASIC—or any other image—to load at power-up while remaining intact across `Ctrl-]` warm resets.
 
 > **Important Note on `$0200`:** Do not store test data in `$0200–$027F`. Both the Woz Monitor and the `$C100` ACI ROM use `$0200` as the live keyboard line buffer, overwriting it whenever you type a command. Use `$0300` or `$1000` for user programs and tests.
 
@@ -98,7 +101,9 @@ The emulator prints `*` and waits for a command.
 ### Core Functions in `aci.c`
 
 * **`aci_execute(const aci_host_t *h)`**
-  Reads the user's command line from Apple-1 RAM at `$0200`, tokenizes memory ranges and optional filenames, and dispatches either to the physical cassette routines (`nr > 0 && nw == 0`) or the FatFs SD-card routines.
+  Reads the user's command line from Apple-1 RAM at `$0200`, tokenizes memory ranges, filename, and optional `AUTO` keyword, and dispatches either to the physical cassette routines (`nr > 0 && nw == 0`) or the FatFs SD-card routines.
+* **`aci_autoload(const aci_host_t *h)`**
+  Scans `/apple1/tape` at cold boot for any `.MAP` file containing the `AUTO` flag and loads its companion binary image into emulated RAM via `h->write()`.
 * **`tape_audio_write(const aci_host_t *h, const range_t *rg, unsigned nr)`**
   Initializes `GP0` as a digital output, emits the 10-second 1000 Hz leader and `750 µs` sync bit, streams all specified memory ranges MSB-first via `h->read()`, and appends a trailing stop cycle.
 * **`tape_calibrate_midpoint(void)`**
