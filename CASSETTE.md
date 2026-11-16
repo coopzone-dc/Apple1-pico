@@ -63,6 +63,8 @@ The emulator prints `*` and waits for a command.
 | `?` | Console | Print summary of available commands |
 | *(Blank line / RETURN)* | Console | Exit ACI and return to the Woz Monitor (`\`) |
 
+> **SD root folder:** `/apple1` is the default. Choose another folder at build time with `cmake -DAPPLE1_ROOT=myfolder ..` (a plain name, no slashes); BASIC loading and all tape files then use `/myfolder/roms/` and `/myfolder/tape/`.
+
 > **Important Note on `$0200`:** Do not store test data in `$0200–$027F`. Both the Woz Monitor and the `$C100` ACI ROM use `$0200` as the live keyboard line buffer, overwriting it whenever you type a command. Use `$0300` or `$1000` for user programs and tests.
 
 ### Recording to Cassette (`W`)
@@ -99,16 +101,15 @@ The emulator prints `*` and waits for a command.
 * **`tape_audio_write(const aci_host_t *h, const range_t *rg, unsigned nr)`**
   Initializes `GP0` as a digital output, emits the 10-second 1000 Hz leader and `750 µs` sync bit, streams all specified memory ranges MSB-first via `h->read()`, and appends a trailing stop cycle.
 * **`tape_calibrate_midpoint(void)`**
-  Samples `GP26` (`ADC0`) 512 times over ~20 ms at the start of a read operation to determine the exact resting DC bias voltage, compensating for resistor tolerances.
+  Samples `GP26` (`ADC0`) 400 times, 50 µs apart (~20 ms), at the start of a read operation to determine the exact resting DC bias voltage, compensating for resistor tolerances.
 * **`tape_wait_rising_edge(...)`**
-  Polls the 12-bit ADC with hysteresis (`±40` counts / ~32 mV) and measures full rising-edge-to-rising-edge periods in microseconds, eliminating sensitivity to asymmetric tape clipping.
+  Polls the 12-bit ADC with hysteresis (`±45` counts / ~36 mV, `TAPE_ADC_HYSTERESIS`) and measures full rising-edge-to-rising-edge periods in microseconds, eliminating sensitivity to asymmetric tape clipping.
 * **`tape_audio_read(const aci_host_t *h, const range_t *rg, unsigned nr)`**
-  Waits up to 30 seconds for 50 consecutive 1000 Hz leader cycles (`850–1300 µs`), locks onto the `750 µs` sync cycle (`600–850 µs`), decodes each subsequent cycle using a `750 µs` threshold (`> 750 µs` = `1`, `<= 750 µs` = `0`), and writes each byte to RAM via `h->write()`.
+  Waits up to 30 seconds (from `RETURN`) for the 1000 Hz leader: 100 consecutive half-cycles each between `375` and `750 µs` (about 50 cycles, 50 ms). The deadline is then restarted and the routine waits up to 15 more seconds for the sync pulse (a half-cycle shorter than `375 µs`) and aligns to the next rising edge. It then decodes each rising-edge-to-rising-edge cycle with a `750 µs` threshold (`> 750 µs` = `1`, `<= 750 µs` = `0`) and writes each byte to RAM via `h->write()`. Because the deadline restarts once the leader locks, the tape can be started anywhere in the 30 seconds after `RETURN`.
 
 ### Error Codes
 
 | Error Message | Cause | Fix |
 | :--- | :--- | :--- |
-| `ERR TIMEOUT` | No 1000 Hz leader tone detected within 30 seconds | Increase playback volume slightly or press Play before `RETURN` |
-| `ERR SYNC ERR` | Short noise burst detected during leader tone | Lower playback volume slightly or check ground connection |
+| `ERR TIMEOUT` | No 1000 Hz leader tone detected within 30 seconds of `RETURN`, or no sync pulse within 15 seconds after the leader locked | Increase playback volume slightly, check the tape is playing, or press Play before `RETURN` |
 | `ERR TAPE ERR` | Audio signal lost mid-transfer (> 2 s gap between cycles) | Ensure tape did not end early and volume is steady |

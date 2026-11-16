@@ -9,7 +9,7 @@
  *   $C200-$CFFF  RAM
  *   $D000-$D0FF  6821 PIA (keyboard/display at $D010-$D013)
  *   $D100-$DFFF  RAM
- *   $E000-$EFFF  RAM: Integer BASIC, loaded from roms/apple1basic.bin on the SD card at boot
+ *   $E000-$EFFF  RAM: Integer BASIC, loaded from <APPLE1_ROOT>/roms/apple1basic.bin on the SD card at boot
  *   $F000-$FEFF  RAM
  *   $FF00-$FFFF  Woz Monitor ROM
  *
@@ -39,7 +39,7 @@
 #define LED_FLASHES_BOOT 2         /* flashes at power-up                         */
 #define LED_FLASHES_RESET 1        /* flashes on Ctrl-] reset                     */
 
-#define BASIC_PATH       "apple1/roms/apple1basic.bin"   /* on the SD card, loaded at $E000 at boot */
+#define BASIC_PATH       APPLE1_ROOT "/roms/apple1basic.bin"   /* on the SD card, loaded at $E000 at boot */
 #define BASIC_BASE       0xE000
 
 /* ------------------------------------------------------------------------ */
@@ -299,7 +299,9 @@ int main(void)
         out_str(msg);
     } else {
         out_str("BASIC NOT LOADED: ");
-        out_str(basic == -1 ? "NO SD CARD" : basic == -2 ? "ROMS/APPLE1BASIC.BIN NOT FOUND" : "READ ERROR");
+        if (basic == -1)      out_str("NO SD CARD");
+        else if (basic == -2) { out_str(BASIC_PATH); out_str(" NOT FOUND"); }
+        else                  out_str("READ ERROR");
         out_str("\r\n");
         if (basic == 0) out_str("(FILE IS EMPTY)\r\n");
     }

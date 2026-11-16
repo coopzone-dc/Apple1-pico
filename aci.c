@@ -23,7 +23,7 @@
 #include "aci.h"
 
 #define ACI_DEFAULT_NAME "TAPE.DAT"
-#define ACI_TAPE_DIR     "apple1/tape"
+#define ACI_TAPE_DIR     APPLE1_ROOT "/tape"    /* APPLE1_ROOT comes from aci.h / -DAPPLE1_ROOT= */
 #define ACI_LINE_MAX     96
 #define ACI_MAX_RANGES   32
 
@@ -32,7 +32,9 @@
 #define TAPE_IN_PIN         26    /* GP26 (ADC0) -> biased at 1.65V, cap-coupled to EAR */
 #define TAPE_IN_ADC_CHAN    0
 #define TAPE_ADC_HYSTERESIS 45    /* Noise margin (~36 mV) around calibrated DC midpoint */
-#define TAPE_TIMEOUT_US     30000000ULL /* 30-second timeout waiting for tape audio */
+#define TAPE_TIMEOUT_US     30000000ULL /* 30 s after RETURN for the leader tone to appear */
+#define TAPE_SYNC_TIMEOUT_US 15000000ULL /* once the leader is locked, up to 15 s more for the sync pulse
+                                            (the leader lasts 10 s, and we may lock on early in it) */
 
 typedef struct { uint16_t start, end; } range_t;
 
@@ -237,6 +239,11 @@ static const char *tape_audio_read(const aci_host_t *h, const range_t *rg, unsig
         }
     }
 
+    /* The leader runs ~10 s and we may have locked on almost at its start, so the sync pulse
+     * can still be several seconds away: restart the deadline instead of reusing the one that
+     * was meant for the leader to appear. */
+    deadline = time_us_64() + TAPE_SYNC_TIMEOUT_US;
+
     /* 2. Detect the 250 us sync pulse (first half-cycle < 375 us after the 1000 Hz leader) */
     for (;;) {
         uint32_t dt = tape_wait_half_cycle(&state, midpoint, deadline);
@@ -303,7 +310,7 @@ static void map_name(const char *name, char *out, size_t size)
     strcpy(out + base, ".MAP");
 }
 
-/* "NAME" -> "apple1/tape/NAME" */
+/* "NAME" -> "<APPLE1_ROOT>/tape/NAME" */
 static void tape_path(char *out, size_t size, const char *name)
 {
     snprintf(out, size, ACI_TAPE_DIR "/%s", name);
@@ -538,7 +545,8 @@ void aci_execute(const aci_host_t *h)
             map_name(name, mapname, sizeof mapname);
             tape_path(mappath, sizeof mappath, mapname);
             f_unlink(mappath);                         /* old range info is now stale */
-            f_mkdir(ACI_TAPE_DIR);                     /* first save: create the tape directory */
+            f_mkdir(APPLE1_ROOT);                      /* first save: create the root folder first ... */
+            f_mkdir(ACI_TAPE_DIR);                     /* ... then the tape folder inside it (f_mkdir is not recursive) */
         }
     }
 

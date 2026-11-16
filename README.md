@@ -32,6 +32,7 @@ Format the microSD card as **FAT32** and place your files in the following struc
            ├── PROGRAM.DAT          # Saved binary tape images
            └── PROGRAM.MAP          # Auto-generated memory range map ("0300.03FF")
 ```
+`apple1` is the default root folder. Choose another one at build time with `cmake -DAPPLE1_ROOT=myfolder ..` (a plain folder name, no slashes); BASIC loading and all tape files then use `/myfolder/roms/` and `/myfolder/tape/`.
 
 ---
 
@@ -42,6 +43,7 @@ Format the microSD card as **FAT32** and place your files in the following struc
    ```bash
    mkdir build && cd build
    cmake ..                     # Add -DPICO_BOARD=pico2 for Raspberry Pi Pico 2
+                                # Add -DAPPLE1_ROOT=name to use /name on the SD card instead of /apple1
    make -j4
    ```
 3. Hold **BOOTSEL** while plugging in the Pico and copy `apple1.uf2` onto the `RPI-RP2` / `RP2350` mass-storage drive.
@@ -92,7 +94,7 @@ The memory map is configured in `main.c` via the `regions[]` table and decoded o
 | `$C200 – $CFFF` | `K_RAM` | 3.5 KB | Contiguous user RAM |
 | `$D000 – $D0FF` | `K_PIA` | 256 B | Motorola 6821 PIA (`$D010–$D013` keyboard & display I/O) |
 | `$D100 – $DFFF` | `K_RAM` | 3.75 KB | Contiguous user RAM |
-| `$E000 – $EFFF` | `K_RAM` | 4 KB | Read/write RAM preloaded with `roms/apple1basic.bin` at boot |
+| `$E000 – $EFFF` | `K_RAM` | 4 KB | Read/write RAM preloaded with `<APPLE1_ROOT>/roms/apple1basic.bin` at boot |
 | `$F000 – $FEFF` | `K_RAM` | 3.75 KB | Contiguous user RAM (available for Krusader or custom ROMs) |
 | `$FF00 – $FFFF` | `K_ROM` | 256 B | Steve Wozniak's Woz Monitor ROM (`wozmon.h`) |
 
@@ -120,4 +122,4 @@ The memory map is configured in `main.c` via the `regions[]` table and decoded o
 * **`machine_reset()`**
   Clears the 6821 PIA state and invokes `cpu_reset()` to load the 6502 Program Counter from `$FFFC–$FFFD`.
 * **`main()`**
-  Initializes USB stdio and the status LED, builds the memory map, loads `roms/apple1basic.bin` from the SD card into `$E000`, waits for a USB terminal connection, and enters the main emulation loop. Executes `cpu_run(SLICE_CYCLES)` (1,000 cycles ≈ 1 ms per slice) and paces execution against `time_us_64()` so the virtual 6502 runs at the authentic **1.022727 MHz** Apple-1 clock speed.
+  Initializes USB stdio and the status LED, builds the memory map, loads `<APPLE1_ROOT>/roms/apple1basic.bin` from the SD card into `$E000`, waits for a USB terminal connection, and enters the main emulation loop. Executes `cpu_run(SLICE_CYCLES)` (1,000 cycles ≈ 1 ms per slice) and paces execution against `time_us_64()` so the virtual 6502 runs at the authentic **1.022727 MHz** Apple-1 clock speed.
