@@ -8,13 +8,13 @@
 .side_set 2
 
 public latch_low:
-    pull block
-    out pins, 8     side 0b00  ; Output lower address byte to GPIO 2-9, LE_LOW=0, LE_HIGH=0
-    nop             side 0b01  ; Strobe LE_LOW high
-    nop             side 0b00  ; Drop LE_LOW low
+    pull block              side 0b00  ; Explicitly provide default side-set value
+    out pins, 8             side 0b00  ; Output lower address byte to GPIO 2-9, LE_LOW=0, LE_HIGH=0
+    nop                     side 0b01  ; Strobe LE_LOW high
+    nop                     side 0b00  ; Drop LE_LOW low
 
 public latch_high:
-    pull block
-    out pins, 8     side 0b00  ; Output upper address byte to GPIO 2-9, LE_LOW=0, LE_HIGH=0
-    nop             side 0b10  ; Strobe LE_HIGH high
-    nop             side 0b00  ; Drop LE_HIGH low
+    pull block              side 0b00  ; Explicitly provide default side-set value
+    out pins, 8             side 0b00  ; Output upper address byte to GPIO 2-9, LE_LOW=0, LE_HIGH=0
+    nop                     side 0b10  ; Strobe LE_HIGH high
+    nop                     side 0b00  ; Drop LE_HIGH low

@@ -8,6 +8,7 @@ add_executable(apple1_pico
     hw_config.c
     aci.c
     bus_driver.c
+    memory_map_hooks.c
 )
 
 pico_generate_pio_header(apple1_pico ${CMAKE_CURRENT_LIST_DIR}/bus_control.pio)
