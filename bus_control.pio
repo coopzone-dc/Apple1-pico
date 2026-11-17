@@ -1,0 +1,20 @@
+; Pico PIO program for 6502 Address Latches (74AHCT573)
+; PHI2 is generated continuously via hardware PWM on GPIO 14.
+; Side-set pins:
+;   bit 0: LE_LOW (GPIO 10)
+;   bit 1: LE_HIGH (GPIO 11)
+
+.program bus_control
+.side_set 2
+
+public latch_low:
+    pull block
+    out pins, 8     side 0b00  ; Output lower address byte to GPIO 2-9, LE_LOW=0, LE_HIGH=0
+    nop             side 0b01  ; Strobe LE_LOW high
+    nop             side 0b00  ; Drop LE_LOW low
+
+public latch_high:
+    pull block
+    out pins, 8     side 0b00  ; Output upper address byte to GPIO 2-9, LE_LOW=0, LE_HIGH=0
+    nop             side 0b10  ; Strobe LE_HIGH high
+    nop             side 0b00  ; Drop LE_HIGH low
